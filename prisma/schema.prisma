@@ -1,0 +1,167 @@
+datasource db {
+  provider = "postgresql"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  admin
+  staff
+}
+
+enum Team {
+  A
+  B
+}
+
+enum TermStatus {
+  draft
+  collecting
+  generating
+  adjusting
+  confirmed
+}
+
+enum ShiftType {
+  day
+  evening
+  night
+  off
+  holiday_off
+  requested_off
+}
+
+model User {
+  id                   String   @id @db.Uuid
+  email                String   @unique @db.VarChar(255)
+  role                 Role     @default(staff)
+  must_change_password Boolean  @default(true)
+  created_at           DateTime @default(now())
+  updated_at           DateTime @default(now()) @updatedAt
+
+  staff     Staff?
+  snapshots ShiftSnapshot[]
+
+  @@map("users")
+}
+
+model Staff {
+  id                    String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id               String   @unique @db.Uuid
+  staff_code            String   @unique @db.VarChar(10)
+  name                  String   @db.VarChar(60)
+  experience_years      Int
+  team                  Team
+  night_shift_available Boolean  @default(true)
+  is_active             Boolean  @default(true)
+  created_at            DateTime @default(now())
+  updated_at            DateTime @default(now()) @updatedAt
+
+  user           User           @relation(fields: [user_id], references: [id])
+  shift_requests ShiftRequest[]
+  shift_entries  ShiftEntry[]
+
+  @@index([team], name: "idx_staffs_team")
+  @@index([is_active], name: "idx_staffs_active")
+  @@map("staffs")
+}
+
+model Term {
+  id                    String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  start_date            DateTime   @db.Date
+  end_date              DateTime   @db.Date
+  fiscal_year           Int
+  status                TermStatus @default(draft)
+  generating_started_at DateTime?
+  request_deadline      DateTime?  @db.Date
+  min_day_staff         Int        @default(7)
+  lock_version          Int        @default(1)
+  created_at            DateTime   @default(now())
+  updated_at            DateTime   @default(now()) @updatedAt
+
+  shift_requests ShiftRequest[]
+  shift_entries  ShiftEntry[]
+  snapshots      ShiftSnapshot[]
+
+  @@index([start_date], name: "idx_terms_start_date")
+  @@index([status], name: "idx_terms_status")
+  @@index([fiscal_year], name: "idx_terms_fiscal_year")
+  @@map("terms")
+}
+
+model ShiftRequest {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  staff_id       String   @db.Uuid
+  term_id        String   @db.Uuid
+  requested_date DateTime @db.Date
+  created_at     DateTime @default(now())
+
+  staff Staff @relation(fields: [staff_id], references: [id])
+  term  Term  @relation(fields: [term_id], references: [id], onDelete: Cascade)
+
+  @@unique([staff_id, term_id, requested_date], name: "uk_shift_requests")
+  @@index([term_id], name: "idx_shift_requests_term")
+  @@map("shift_requests")
+}
+
+model ShiftEntry {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  term_id        String    @db.Uuid
+  staff_id       String    @db.Uuid
+  date           DateTime  @db.Date
+  shift_type     ShiftType
+  is_manual_edit Boolean   @default(false)
+  updated_at     DateTime  @default(now()) @updatedAt
+
+  term  Term  @relation(fields: [term_id], references: [id])
+  staff Staff @relation(fields: [staff_id], references: [id])
+
+  @@unique([term_id, staff_id, date], name: "uk_shift_entries")
+  @@index([term_id, date], name: "idx_shift_entries_date")
+  @@map("shift_entries")
+}
+
+model ShiftSnapshot {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  term_id    String   @db.Uuid
+  version    Int
+  data       Json
+  created_by String   @db.Uuid
+  created_at DateTime @default(now())
+
+  term    Term @relation(fields: [term_id], references: [id])
+  creator User @relation(fields: [created_by], references: [id])
+
+  @@unique([term_id, version], name: "uk_shift_snapshots")
+  @@map("shift_snapshots")
+}
+
+model Holiday {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  date       DateTime @unique @db.Date
+  name       String   @db.VarChar(100)
+  year       Int
+  is_custom  Boolean  @default(false)
+  created_at DateTime @default(now())
+
+  @@index([year], name: "idx_holidays_year")
+  @@map("holidays")
+}
+
+model AuditLog {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id       String   @db.Uuid
+  action        String   @db.VarChar(50)
+  resource_type String   @db.VarChar(30)
+  resource_id   String?  @db.Uuid
+  detail        Json?
+  created_at    DateTime @default(now())
+
+  @@index([user_id], name: "idx_audit_logs_user_id")
+  @@index([action], name: "idx_audit_logs_action")
+  @@index([created_at], name: "idx_audit_logs_created_at")
+  @@index([resource_type, resource_id], name: "idx_audit_logs_resource")
+  @@map("audit_logs")
+}
