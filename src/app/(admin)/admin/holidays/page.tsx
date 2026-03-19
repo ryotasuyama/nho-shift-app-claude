@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, type FormEvent } from "react";
+import { apiFetch } from "@/lib/api/client";
 
 type HolidayItem = {
   id: string;
@@ -19,6 +20,7 @@ export default function HolidaysManagementPage() {
   const [newName, setNewName] = useState("");
   const [formError, setFormError] = useState("");
   const [formLoading, setFormLoading] = useState(false);
+  const [error, setError] = useState("");
 
   const fetchHolidays = useCallback(async () => {
     setLoading(true);
@@ -26,10 +28,8 @@ export default function HolidaysManagementPage() {
     if (yearFilter) params.set("year", yearFilter);
 
     try {
-      const res = await fetch(`/api/holidays?${params.toString()}`);
-      const json: unknown = await res.json();
-      const body = json as { data?: HolidayItem[] };
-      if (res.ok && body.data) setHolidays(body.data);
+      const { data } = await apiFetch<HolidayItem[]>(`/api/holidays?${params.toString()}`);
+      if (data) setHolidays(data);
     } catch {
       console.error("Failed to fetch holidays");
     } finally {
@@ -51,15 +51,13 @@ export default function HolidaysManagementPage() {
     setFormLoading(true);
 
     try {
-      const res = await fetch("/api/holidays", {
+      const { error: errMsg } = await apiFetch("/api/holidays", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ date: newDate, name: newName.trim() }),
       });
-      const json: unknown = await res.json();
-      const body = json as { error?: { message?: string } };
-      if (!res.ok) {
-        setFormError(body.error?.message ?? "登録に失敗しました");
+      if (errMsg) {
+        setFormError(errMsg);
         return;
       }
       setNewDate("");
@@ -76,17 +74,16 @@ export default function HolidaysManagementPage() {
   const handleDelete = async (holiday: HolidayItem) => {
     if (!confirm(`「${holiday.name}」(${holiday.date}) を削除しますか？`)) return;
 
+    setError("");
     try {
-      const res = await fetch(`/api/holidays/${holiday.id}`, { method: "DELETE" });
-      const json: unknown = await res.json();
-      const body = json as { error?: { message?: string } };
-      if (!res.ok) {
-        alert(body.error?.message ?? "削除に失敗しました");
+      const { error: errMsg } = await apiFetch(`/api/holidays/${holiday.id}`, { method: "DELETE" });
+      if (errMsg) {
+        setError(errMsg);
         return;
       }
       fetchHolidays();
     } catch {
-      alert("通信エラーが発生しました");
+      setError("通信エラーが発生しました");
     }
   };
 
@@ -136,6 +133,8 @@ export default function HolidaysManagementPage() {
           {formError && <p className="mt-2 text-sm text-red-600">{formError}</p>}
         </div>
       )}
+
+      {error && <p className="mb-4 text-sm text-red-600">{error}</p>}
 
       <div className="mb-4">
         <input

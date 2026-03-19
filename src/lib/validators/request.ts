@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import { z } from "zod";
 
 export const createRequestSchema = z.object({
   staff_id: z.string().uuid("スタッフIDの形式が不正です"),

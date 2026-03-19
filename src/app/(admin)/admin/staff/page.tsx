@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import StaffTable from "@/components/staff/StaffTable";
 import StaffFormDialog from "@/components/staff/StaffFormDialog";
 import type { StaffListItem } from "@/types/staff";
+import { apiFetch } from "@/lib/api/client";
 
 export default function StaffManagementPage() {
   const [staffs, setStaffs] = useState<StaffListItem[]>([]);
@@ -13,6 +14,7 @@ export default function StaffManagementPage() {
   const [search, setSearch] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingStaff, setEditingStaff] = useState<StaffListItem | null>(null);
+  const [error, setError] = useState("");
 
   const fetchStaffs = useCallback(async () => {
     setLoading(true);
@@ -22,12 +24,8 @@ export default function StaffManagementPage() {
     if (search) params.set("search", search);
 
     try {
-      const res = await fetch(`/api/staffs?${params.toString()}`);
-      const json: unknown = await res.json();
-      const body = json as { data?: StaffListItem[] };
-      if (res.ok && body.data) {
-        setStaffs(body.data);
-      }
+      const { data } = await apiFetch<StaffListItem[]>(`/api/staffs?${params.toString()}`);
+      if (data) setStaffs(data);
     } catch {
       console.error("Failed to fetch staffs");
     } finally {
@@ -53,34 +51,30 @@ export default function StaffManagementPage() {
     if (!confirm(`${staff.name} を無効化しますか？\n未確定タームのシフトからも除外されます。`)) {
       return;
     }
+    setError("");
     try {
-      const res = await fetch(`/api/staffs/${staff.id}`, { method: "DELETE" });
-      const json: unknown = await res.json();
-      const body = json as { error?: { message?: string } };
-      if (!res.ok) {
-        alert(body.error?.message ?? "無効化に失敗しました");
+      const { error: errMsg } = await apiFetch(`/api/staffs/${staff.id}`, { method: "DELETE" });
+      if (errMsg) {
+        setError(errMsg);
         return;
       }
       fetchStaffs();
     } catch {
-      alert("通信エラーが発生しました");
+      setError("通信エラーが発生しました");
     }
   };
 
   const handleRestore = async (staff: StaffListItem) => {
+    setError("");
     try {
-      const res = await fetch(`/api/staffs/${staff.id}/restore`, {
-        method: "PUT",
-      });
-      const json: unknown = await res.json();
-      const body = json as { error?: { message?: string } };
-      if (!res.ok) {
-        alert(body.error?.message ?? "復元に失敗しました");
+      const { error: errMsg } = await apiFetch(`/api/staffs/${staff.id}/restore`, { method: "PUT" });
+      if (errMsg) {
+        setError(errMsg);
         return;
       }
       fetchStaffs();
     } catch {
-      alert("通信エラーが発生しました");
+      setError("通信エラーが発生しました");
     }
   };
 
@@ -129,6 +123,8 @@ export default function StaffManagementPage() {
           <option value="false">無効化済み</option>
         </select>
       </div>
+
+      {error && <p className="mb-4 text-sm text-red-600">{error}</p>}
 
       {loading ? (
         <p className="text-gray-500">読み込み中...</p>

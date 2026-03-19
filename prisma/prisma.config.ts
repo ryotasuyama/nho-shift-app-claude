@@ -5,6 +5,7 @@ import { defineConfig } from "prisma/config";
 dotenv.config({ path: path.resolve(__dirname, "..", ".env") });
 dotenv.config({ path: path.resolve(__dirname, "..", ".env.local"), override: true });
 
+// DIRECT_URL (non-pooled) preferred for migrations — PgBouncer doesn't support DDL
 const url = process.env.DIRECT_URL || process.env.DATABASE_URL;
 if (!url) {
   throw new Error("DIRECT_URL or DATABASE_URL must be set in .env");

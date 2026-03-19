@@ -2,6 +2,9 @@
 
 import { useEffect, useState, useCallback } from "react";
 import type { TermListItem } from "@/types/term";
+import { apiFetch } from "@/lib/api/client";
+import { WEEKDAY_LABELS } from "@/lib/constants/shift";
+import { parseDate, addDays, formatDate } from "@/lib/utils/date";
 
 type RequestItem = {
   id: string;
@@ -24,13 +27,11 @@ export default function RequestsPage() {
   useEffect(() => {
     const fetchTerms = async () => {
       try {
-        const res = await fetch("/api/terms?status=collecting");
-        const json: unknown = await res.json();
-        const body = json as { data?: TermListItem[] };
-        if (res.ok && body.data) {
-          setTerms(body.data);
-          if (body.data.length > 0 && !selectedTermId) {
-            setSelectedTermId(body.data[0].id);
+        const { data } = await apiFetch<TermListItem[]>("/api/terms?status=collecting");
+        if (data) {
+          setTerms(data);
+          if (data.length > 0 && !selectedTermId) {
+            setSelectedTermId(data[0].id);
           }
         }
       } catch {
@@ -46,11 +47,9 @@ export default function RequestsPage() {
   useEffect(() => {
     const fetchSession = async () => {
       try {
-        const res = await fetch("/api/auth/session");
-        const json: unknown = await res.json();
-        const body = json as { data?: { staff_id?: string } };
-        if (res.ok && body.data?.staff_id) {
-          setStaffId(body.data.staff_id);
+        const { data } = await apiFetch<{ staff_id?: string }>("/api/auth/session");
+        if (data?.staff_id) {
+          setStaffId(data.staff_id);
         }
       } catch {
         // session endpoint may not exist yet, try localStorage fallback
@@ -62,12 +61,8 @@ export default function RequestsPage() {
   const fetchRequests = useCallback(async () => {
     if (!selectedTermId) return;
     try {
-      const res = await fetch(`/api/terms/${selectedTermId}/requests`);
-      const json: unknown = await res.json();
-      const body = json as { data?: RequestItem[] };
-      if (res.ok && body.data) {
-        setRequests(body.data);
-      }
+      const { data } = await apiFetch<RequestItem[]>(`/api/terms/${selectedTermId}/requests`);
+      if (data) setRequests(data);
     } catch {
       console.error("Failed to fetch requests");
     }
@@ -86,14 +81,9 @@ export default function RequestsPage() {
   // Generate calendar dates for the selected term
   const calendarDates: string[] = [];
   if (selectedTerm) {
-    const start = new Date(selectedTerm.start_date + "T00:00:00Z");
+    const start = parseDate(selectedTerm.start_date);
     for (let i = 0; i < 28; i++) {
-      const d = new Date(start.getTime());
-      d.setUTCDate(d.getUTCDate() + i);
-      const y = d.getUTCFullYear();
-      const m = String(d.getUTCMonth() + 1).padStart(2, "0");
-      const day = String(d.getUTCDate()).padStart(2, "0");
-      calendarDates.push(`${y}-${m}-${day}`);
+      calendarDates.push(formatDate(addDays(start, i)));
     }
   }
 
@@ -109,13 +99,11 @@ export default function RequestsPage() {
       setSubmitting(true);
       setError("");
       try {
-        const res = await fetch(`/api/terms/${selectedTermId}/requests/${req.id}`, {
+        const { error: errMsg } = await apiFetch(`/api/terms/${selectedTermId}/requests/${req.id}`, {
           method: "DELETE",
         });
-        const json: unknown = await res.json();
-        const body = json as { error?: { message?: string } };
-        if (!res.ok) {
-          setError(body.error?.message ?? "取消に失敗しました");
+        if (errMsg) {
+          setError(errMsg);
           return;
         }
         fetchRequests();
@@ -133,15 +121,13 @@ export default function RequestsPage() {
       setSubmitting(true);
       setError("");
       try {
-        const res = await fetch(`/api/terms/${selectedTermId}/requests`, {
+        const { error: errMsg } = await apiFetch(`/api/terms/${selectedTermId}/requests`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ staff_id: staffId, requested_date: date }),
         });
-        const json: unknown = await res.json();
-        const body = json as { error?: { message?: string } };
-        if (!res.ok) {
-          setError(body.error?.message ?? "申請に失敗しました");
+        if (errMsg) {
+          setError(errMsg);
           return;
         }
         fetchRequests();
@@ -153,12 +139,7 @@ export default function RequestsPage() {
     }
   };
 
-  const getDayOfWeek = (dateStr: string) => {
-    const d = new Date(dateStr + "T00:00:00Z");
-    return d.getUTCDay();
-  };
-
-  const WEEKDAY_LABELS = ["日", "月", "火", "水", "木", "金", "土"];
+  const getDayOfWeek = (dateStr: string) => parseDate(dateStr).getUTCDay();
 
   if (loading) {
     return (

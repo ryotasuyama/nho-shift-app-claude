@@ -1,30 +1,9 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { useShiftStore } from "@/stores/shift-store";
 import type { ShiftTypeValue, ConstraintViolation } from "@/lib/constraints/types";
-
-const SHIFT_LABELS: Record<ShiftTypeValue, string> = {
-  day: "日",
-  evening: "準",
-  night: "深",
-  off: "休",
-  holiday_off: "代",
-  requested_off: "希",
-};
-
-const SHIFT_COLORS: Record<ShiftTypeValue, string> = {
-  day: "text-gray-900",
-  evening: "text-orange-700",
-  night: "text-blue-700",
-  off: "text-gray-400",
-  holiday_off: "text-purple-600",
-  requested_off: "text-pink-600",
-};
-
-const EDITABLE_TYPES: ShiftTypeValue[] = ["day", "evening", "night", "off", "holiday_off"];
-
-const WEEKDAY_LABELS = ["日", "月", "火", "水", "木", "金", "土"];
+import { SHIFT_LABELS, SHIFT_COLORS, EDITABLE_TYPES, WEEKDAY_LABELS } from "@/lib/constants/shift";
 
 export default function ShiftGrid() {
   const { staffs, entries, dates, holidays, violations, term, editCell, isGenerating } = useShiftStore();
@@ -32,9 +11,15 @@ export default function ShiftGrid() {
 
   const holidaySet = new Set(holidays);
 
+  const entryMap = useMemo(() => {
+    const map = new Map<string, (typeof entries)[number]>();
+    entries.forEach((e) => map.set(`${e.staff_id}_${e.date}`, e));
+    return map;
+  }, [entries]);
+
   const getEntry = useCallback(
-    (staffId: string, date: string) => entries.find((e) => e.staff_id === staffId && e.date === date),
-    [entries]
+    (staffId: string, date: string) => entryMap.get(`${staffId}_${date}`),
+    [entryMap]
   );
 
   const getViolationsForCell = useCallback(
@@ -110,10 +95,15 @@ export default function ShiftGrid() {
         </thead>
         <tbody>
           {staffs.map((staff) => {
-            // Compute per-staff stats inline
-            const staffEntries = entries.filter((e) => e.staff_id === staff.id);
-            const nightCount = staffEntries.filter((e) => e.shift_type === "evening" || e.shift_type === "night").length;
-            const offCount = staffEntries.filter((e) => e.shift_type === "off" || e.shift_type === "requested_off").length;
+            // Compute per-staff stats via O(dates) lookup
+            let nightCount = 0;
+            let offCount = 0;
+            for (const date of dates) {
+              const e = entryMap.get(`${staff.id}_${date}`);
+              if (!e) continue;
+              if (e.shift_type === "evening" || e.shift_type === "night") nightCount++;
+              if (e.shift_type === "off" || e.shift_type === "requested_off") offCount++;
+            }
 
             return (
               <tr key={staff.id}>
@@ -177,14 +167,20 @@ export default function ShiftGrid() {
           <tr className="bg-gray-100 font-medium">
             <td className="sticky left-0 z-10 border border-gray-300 bg-gray-100 px-1 py-0.5">日別合計</td>
             {dates.map((date) => {
-              const dayEntries = entries.filter((e) => e.date === date);
-              const dayCount = dayEntries.filter((e) => e.shift_type === "day").length;
-              const eveningCount = dayEntries.filter((e) => e.shift_type === "evening").length;
-              const nightCount = dayEntries.filter((e) => e.shift_type === "night").length;
+              let dayCount = 0;
+              let eveningCount = 0;
+              let nightCountSum = 0;
+              for (const staff of staffs) {
+                const e = entryMap.get(`${staff.id}_${date}`);
+                if (!e) continue;
+                if (e.shift_type === "day") dayCount++;
+                else if (e.shift_type === "evening") eveningCount++;
+                else if (e.shift_type === "night") nightCountSum++;
+              }
               return (
                 <td key={date} className={`border border-gray-300 px-0.5 py-0.5 text-center ${getDateBg(date)}`}>
                   <div className="text-[9px] leading-tight text-gray-600">
-                    {dayCount}/{eveningCount}/{nightCount}
+                    {dayCount}/{eveningCount}/{nightCountSum}
                   </div>
                 </td>
               );

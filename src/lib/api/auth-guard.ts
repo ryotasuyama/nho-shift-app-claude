@@ -4,9 +4,13 @@ import { ERROR_CODES } from "./errors";
 
 type AuthResult = {
   userId: string;
-  role: string;
+  role: "admin" | "staff";
   email: string;
 };
+
+function parseRole(value: unknown): "admin" | "staff" {
+  return value === "admin" ? "admin" : "staff";
+}
 
 export const getAuthUser = async (): Promise<AuthResult | null> => {
   const supabase = await createServerSupabase();
@@ -18,7 +22,7 @@ export const getAuthUser = async (): Promise<AuthResult | null> => {
 
   return {
     userId: user.id,
-    role: (user.user_metadata?.role as string) ?? "staff",
+    role: parseRole(user.user_metadata?.role),
     email: user.email ?? "",
   };
 };

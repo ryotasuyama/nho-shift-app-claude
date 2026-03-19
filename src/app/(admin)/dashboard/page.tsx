@@ -2,14 +2,9 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-
-type TermSummary = {
-  id: string;
-  start_date: string;
-  end_date: string;
-  status: string;
-  fiscal_year: number;
-};
+import type { TermListItem } from "@/types/term";
+import { STATUS_LABELS, STATUS_COLORS } from "@/types/term";
+import { apiFetch } from "@/lib/api/client";
 
 type StaffCount = {
   total: number;
@@ -26,25 +21,9 @@ type RequestSummary = {
 };
 
 type DashboardData = {
-  terms: TermSummary[];
+  terms: TermListItem[];
   staff_count: StaffCount;
   request_summaries: RequestSummary[];
-};
-
-const STATUS_LABELS: Record<string, string> = {
-  draft: "下書き",
-  collecting: "受付中",
-  generating: "生成中",
-  adjusting: "調整中",
-  confirmed: "確定",
-};
-
-const STATUS_COLORS: Record<string, string> = {
-  draft: "bg-gray-100 text-gray-700",
-  collecting: "bg-blue-100 text-blue-700",
-  generating: "bg-yellow-100 text-yellow-700",
-  adjusting: "bg-orange-100 text-orange-700",
-  confirmed: "bg-green-100 text-green-700",
 };
 
 export default function DashboardPage() {
@@ -54,11 +33,8 @@ export default function DashboardPage() {
   useEffect(() => {
     const fetchDashboard = async () => {
       try {
-        const res = await fetch("/api/dashboard");
-        if (res.ok) {
-          const json = (await res.json()) as { data: DashboardData };
-          setData(json.data);
-        }
+        const { data } = await apiFetch<DashboardData>("/api/dashboard");
+        if (data) setData(data);
       } catch {
         console.error("Failed to fetch dashboard");
       } finally {

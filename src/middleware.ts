@@ -6,10 +6,12 @@ const PUBLIC_PATHS = ["/login", "/api/auth/login"];
 const isPublicPath = (pathname: string) =>
   PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p + "/"));
 
+function parseRole(value: unknown): "admin" | "staff" {
+  return value === "admin" ? "admin" : "staff";
+}
+
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
-
-  console.log("[middleware]", request.method, pathname, "isPublic:", isPublicPath(pathname));
 
   // Skip static files and Next.js internals
   if (
@@ -52,7 +54,7 @@ export async function middleware(request: NextRequest) {
   // Public paths - allow access, redirect authenticated users away from login
   if (isPublicPath(pathname)) {
     if (user && pathname === "/login") {
-      const role = (user.user_metadata?.role as string) ?? "staff";
+      const role = parseRole(user.user_metadata?.role);
       const redirectTo = role === "admin" ? "/dashboard" : "/home";
       return NextResponse.redirect(new URL(redirectTo, request.url));
     }
@@ -76,7 +78,7 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL("/login", request.url));
   }
 
-  const role = (user.user_metadata?.role as string) ?? "staff";
+  const role = parseRole(user.user_metadata?.role);
   // Role-based routing
   if (pathname === "/") {
     const redirectTo = role === "admin" ? "/dashboard" : "/home";

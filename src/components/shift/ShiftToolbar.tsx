@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useShiftStore } from "@/stores/shift-store";
 import SnapshotPanel from "./SnapshotPanel";
+import { apiFetch } from "@/lib/api/client";
 
 type ShiftToolbarProps = {
   termId: string;
@@ -43,11 +44,9 @@ export default function ShiftToolbar({ termId, onDataReload }: ShiftToolbarProps
     setGenerating(true);
 
     try {
-      const res = await fetch(`/api/terms/${termId}/shifts/generate`, { method: "POST" });
-      const json: unknown = await res.json();
-      const body = json as { error?: { message?: string } };
-      if (!res.ok) {
-        setError(body.error?.message ?? "シフト生成に失敗しました");
+      const { error: errMsg } = await apiFetch(`/api/terms/${termId}/shifts/generate`, { method: "POST" });
+      if (errMsg) {
+        setError(errMsg);
         return;
       }
       onDataReload();
@@ -65,35 +64,34 @@ export default function ShiftToolbar({ termId, onDataReload }: ShiftToolbarProps
     setError("");
 
     try {
-      const res = await fetch(`/api/terms/${termId}/shifts/save`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          lock_version: term.lock_version,
-          entries: entries.map((e) => ({
-            staff_id: e.staff_id,
-            date: e.date,
-            shift_type: e.shift_type,
-            is_manual_edit: e.is_manual_edit,
-          })),
-        }),
-      });
-      const json = (await res.json()) as {
-        data?: { term?: { lock_version: number } };
-        error?: { message?: string };
-      };
+      const { res, data, error: errMsg } = await apiFetch<{ term?: { lock_version: number } }>(
+        `/api/terms/${termId}/shifts/save`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            lock_version: term.lock_version,
+            entries: entries.map((e) => ({
+              staff_id: e.staff_id,
+              date: e.date,
+              shift_type: e.shift_type,
+              is_manual_edit: e.is_manual_edit,
+            })),
+          }),
+        }
+      );
 
-      if (!res.ok) {
+      if (errMsg) {
         if (res.status === 409) {
-          alert("他のユーザーがシフトを変更しました。画面を再読み込みしてください。");
+          setError("他のユーザーがシフトを変更しました。画面を再読み込みしてください。");
           onDataReload();
         } else {
-          setError(json.error?.message ?? "保存に失敗しました");
+          setError(errMsg);
         }
         return;
       }
 
-      const newVersion = json.data?.term?.lock_version;
+      const newVersion = data?.term?.lock_version;
       if (typeof newVersion === "number") {
         markSaved(newVersion);
       }
@@ -110,21 +108,20 @@ export default function ShiftToolbar({ termId, onDataReload }: ShiftToolbarProps
       : "シフト表を差し戻しますか？";
     if (!confirm(msg)) return;
 
+    setError("");
     try {
-      const res = await fetch(`/api/terms/${termId}/status`, {
+      const { error: errMsg } = await apiFetch(`/api/terms/${termId}/status`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: newStatus }),
       });
-      const json: unknown = await res.json();
-      const body = json as { error?: { message?: string } };
-      if (!res.ok) {
-        alert(body.error?.message ?? "ステータス変更に失敗しました");
+      if (errMsg) {
+        setError(errMsg);
         return;
       }
       onDataReload();
     } catch {
-      alert("通信エラーが発生しました");
+      setError("通信エラーが発生しました");
     }
   }, [termId, onDataReload]);
 
