@@ -1,0 +1,26 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: "postgresql://dummy:dummy@localhost:5432/dummy"
+      DIRECT_URL: "postgresql://dummy:dummy@localhost:5432/dummy"
+      NEXT_PUBLIC_SUPABASE_URL: "https://dummy.supabase.co"
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: "dummy"
+      SUPABASE_SERVICE_ROLE_KEY: "dummy"
+      CRON_SECRET: "dummy"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+      - run: npm ci
+      - run: npm run check
