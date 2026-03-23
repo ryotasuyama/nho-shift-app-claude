@@ -3,60 +3,84 @@
 import { useState, useCallback, useMemo } from "react";
 import { useShiftStore } from "@/stores/shift-store";
 import type { ShiftTypeValue, ConstraintViolation } from "@/lib/constraints/types";
-import { SHIFT_LABELS, SHIFT_COLORS, EDITABLE_TYPES, WEEKDAY_LABELS } from "@/lib/constants/shift";
+import { WEEKDAY_LABELS } from "@/lib/constants/shift";
+import { ShiftRow } from "./ShiftRow";
 
 export default function ShiftGrid() {
-  const { staffs, entries, dates, holidays, violations, term, editCell, isGenerating } = useShiftStore();
+  const staffs = useShiftStore((s) => s.staffs);
+  const entries = useShiftStore((s) => s.entries);
+  const dates = useShiftStore((s) => s.dates);
+  const holidays = useShiftStore((s) => s.holidays);
+  const violations = useShiftStore((s) => s.violations);
+  const term = useShiftStore((s) => s.term);
+  const editCell = useShiftStore((s) => s.editCell);
+  const isGenerating = useShiftStore((s) => s.isGenerating);
+
   const [popover, setPopover] = useState<{ staffId: string; date: string } | null>(null);
 
-  const holidaySet = new Set(holidays);
+  const holidaySet = useMemo(() => new Set(holidays), [holidays]);
 
   const entryMap = useMemo(() => {
     const map = new Map<string, (typeof entries)[number]>();
-    entries.forEach((e) => map.set(`${e.staff_id}_${e.date}`, e));
+    for (const e of entries) {
+      map.set(`${e.staff_id}_${e.date}`, e);
+    }
     return map;
   }, [entries]);
 
-  const getEntry = useCallback(
-    (staffId: string, date: string) => entryMap.get(`${staffId}_${date}`),
-    [entryMap]
-  );
-
-  const getViolationsForCell = useCallback(
-    (staffId: string, date: string): ConstraintViolation[] =>
-      violations.filter((v) => (v.staff_id === staffId || !v.staff_id) && (v.date === date || !v.date)),
-    [violations]
-  );
+  const violationMap = useMemo(() => {
+    const map = new Map<string, ConstraintViolation[]>();
+    for (const v of violations) {
+      // Violations with both staff_id and date → specific cell
+      if (v.staff_id && v.date) {
+        const key = `${v.staff_id}_${v.date}`;
+        let arr = map.get(key);
+        if (!arr) { arr = []; map.set(key, arr); }
+        arr.push(v);
+      } else if (v.staff_id && !v.date) {
+        // Staff-level violation → apply to all dates for this staff
+        for (const date of dates) {
+          const key = `${v.staff_id}_${date}`;
+          let arr = map.get(key);
+          if (!arr) { arr = []; map.set(key, arr); }
+          arr.push(v);
+        }
+      } else if (!v.staff_id && v.date) {
+        // Date-level violation → apply to all staffs for this date
+        for (const staff of staffs) {
+          const key = `${staff.id}_${v.date}`;
+          let arr = map.get(key);
+          if (!arr) { arr = []; map.set(key, arr); }
+          arr.push(v);
+        }
+      }
+    }
+    return map;
+  }, [violations, dates, staffs]);
 
   const getDow = (dateStr: string) => new Date(dateStr + "T00:00:00Z").getUTCDay();
 
-  const getDateBg = (dateStr: string): string => {
+  const getDateBg = useCallback((dateStr: string): string => {
     if (holidaySet.has(dateStr)) return "bg-pink-50";
     const dow = getDow(dateStr);
     if (dow === 0) return "bg-red-50";
     if (dow === 6) return "bg-blue-50";
     return "";
-  };
+  }, [holidaySet]);
 
-  const getCellBorder = (staffId: string, date: string): string => {
-    const cellViols = getViolationsForCell(staffId, date);
-    if (cellViols.some((v) => v.severity === "hard" && v.phase === 1)) return "ring-2 ring-red-500";
-    if (cellViols.some((v) => v.severity === "hard" && v.phase === 2)) return "ring-2 ring-yellow-500";
-    if (cellViols.some((v) => v.severity === "soft")) return "ring-1 ring-yellow-300";
-    return "";
-  };
+  const canEdit = term?.status === "adjusting" || term?.status === "collecting";
 
-  const handleCellClick = (staffId: string, date: string) => {
-    if (isGenerating) return;
-    if (term?.status !== "adjusting" && term?.status !== "collecting") return;
-    setPopover(popover?.staffId === staffId && popover?.date === date ? null : { staffId, date });
-  };
+  const handleCellClick = useCallback((staffId: string, date: string) => {
+    setPopover((prev) =>
+      prev?.staffId === staffId && prev?.date === date ? null : { staffId, date }
+    );
+  }, []);
 
-  const handleSelectType = (type: ShiftTypeValue) => {
+  const handleSelectType = useCallback((type: ShiftTypeValue) => {
     if (!popover) return;
     editCell(popover.staffId, popover.date, type);
     setPopover(null);
-  };
+  }, [popover, editCell]);
 
   if (dates.length === 0 || staffs.length === 0) {
     return <p className="text-gray-500">シフトデータがありません</p>;
@@ -94,75 +118,21 @@ export default function ShiftGrid() {
           </tr>
         </thead>
         <tbody>
-          {staffs.map((staff) => {
-            // Compute per-staff stats via O(dates) lookup
-            let nightCount = 0;
-            let offCount = 0;
-            for (const date of dates) {
-              const e = entryMap.get(`${staff.id}_${date}`);
-              if (!e) continue;
-              if (e.shift_type === "evening" || e.shift_type === "night") nightCount++;
-              if (e.shift_type === "off" || e.shift_type === "requested_off") offCount++;
-            }
-
-            return (
-              <tr key={staff.id}>
-                <td className="sticky left-0 z-10 border border-gray-300 bg-white px-1 py-0.5 text-left font-medium">
-                  <span className="text-gray-400">{staff.staff_code}</span>{" "}
-                  <span className="text-gray-900">{staff.name}</span>
-                  <span className="ml-1 text-[10px] text-gray-400">{staff.team}</span>
-                </td>
-                {dates.map((date) => {
-                  const entry = getEntry(staff.id, date);
-                  const shiftType = entry?.shift_type;
-                  const isManual = entry?.is_manual_edit;
-                  const cellBorder = getCellBorder(staff.id, date);
-                  const isPopoverTarget = popover?.staffId === staff.id && popover?.date === date;
-
-                  return (
-                    <td
-                      key={date}
-                      className={`relative cursor-pointer border border-gray-200 px-0.5 py-0.5 text-center select-none ${getDateBg(date)} ${cellBorder}`}
-                      onClick={() => handleCellClick(staff.id, date)}
-                    >
-                      {shiftType && (
-                        <span className={`font-bold ${SHIFT_COLORS[shiftType]}`}>
-                          {SHIFT_LABELS[shiftType]}
-                        </span>
-                      )}
-                      {isManual && (
-                        <span className="absolute left-0.5 top-0 text-[6px] text-blue-500">●</span>
-                      )}
-                      {isPopoverTarget && (
-                        <div className="absolute left-1/2 top-full z-30 -translate-x-1/2 rounded border border-gray-300 bg-white shadow-lg">
-                          <div className="flex gap-0.5 p-1">
-                            {EDITABLE_TYPES.map((t) => (
-                              <button
-                                key={t}
-                                type="button"
-                                onClick={(e) => { e.stopPropagation(); handleSelectType(t); }}
-                                className={`rounded px-1.5 py-0.5 text-xs font-bold hover:bg-gray-100 ${SHIFT_COLORS[t]} ${
-                                  shiftType === t ? "bg-gray-200" : ""
-                                }`}
-                              >
-                                {SHIFT_LABELS[t]}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </td>
-                  );
-                })}
-                <td className="border border-gray-300 bg-gray-50 px-1 py-0.5 text-center text-gray-700">
-                  {nightCount}
-                </td>
-                <td className="border border-gray-300 bg-gray-50 px-1 py-0.5 text-center text-gray-700">
-                  {offCount}
-                </td>
-              </tr>
-            );
-          })}
+          {staffs.map((staff) => (
+            <ShiftRow
+              key={staff.id}
+              staff={staff}
+              dates={dates}
+              entryMap={entryMap}
+              violationMap={violationMap}
+              popover={popover}
+              isGenerating={isGenerating}
+              canEdit={canEdit ?? false}
+              getDateBg={getDateBg}
+              onCellClick={handleCellClick}
+              onSelectType={handleSelectType}
+            />
+          ))}
           {/* Daily summary row */}
           <tr className="bg-gray-100 font-medium">
             <td className="sticky left-0 z-10 border border-gray-300 bg-gray-100 px-1 py-0.5">日別合計</td>

@@ -7,6 +7,13 @@ import { calculateTermStatistics } from "@/lib/statistics/shift-statistics";
 
 const MAX_UNDO = 20;
 
+let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+function debouncedRecompute(recompute: () => void) {
+  if (debounceTimer) clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(() => recompute(), 150);
+}
+
 type TermInfo = {
   id: string;
   start_date: string;
@@ -135,7 +142,7 @@ export const useShiftStore = create<ShiftStore>((set, get) => ({
     const newUndoStack = [...undoStack, undoEntry].slice(-MAX_UNDO);
 
     set({ entries: newEntries, undoStack: newUndoStack, redoStack: [], isDirty: true });
-    get().recomputeConstraints();
+    debouncedRecompute(() => get().recomputeConstraints());
   },
 
   undo: () => {
@@ -155,7 +162,7 @@ export const useShiftStore = create<ShiftStore>((set, get) => ({
       redoStack: [...redoStack, action].slice(-MAX_UNDO),
       isDirty: true,
     });
-    get().recomputeConstraints();
+    debouncedRecompute(() => get().recomputeConstraints());
   },
 
   redo: () => {
@@ -175,7 +182,7 @@ export const useShiftStore = create<ShiftStore>((set, get) => ({
       redoStack: redoStack.slice(0, -1),
       isDirty: true,
     });
-    get().recomputeConstraints();
+    debouncedRecompute(() => get().recomputeConstraints());
   },
 
   setGenerating: (generating) => set({ isGenerating: generating, generatingElapsed: 0 }),

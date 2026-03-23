@@ -9,25 +9,23 @@ export async function GET() {
     const { user, error: authError } = await requireAuth();
     if (authError) return authError;
 
-    // Get staff record for current user
-    const staff = await prisma.staff.findUnique({
-      where: { user_id: user!.userId },
-    });
+    // Run independent queries in parallel
+    const [staff, collectingTerms, confirmedTerms] = await Promise.all([
+      prisma.staff.findUnique({
+        where: { user_id: user!.userId },
+      }),
+      prisma.term.findMany({
+        where: { status: "collecting" },
+        orderBy: { start_date: "asc" },
+      }),
+      prisma.term.findMany({
+        where: { status: "confirmed" },
+        orderBy: { start_date: "desc" },
+        take: 5,
+      }),
+    ]);
 
-    // Collecting terms (staff can submit requests)
-    const collectingTerms = await prisma.term.findMany({
-      where: { status: "collecting" },
-      orderBy: { start_date: "asc" },
-    });
-
-    // Confirmed terms (staff can view shifts)
-    const confirmedTerms = await prisma.term.findMany({
-      where: { status: "confirmed" },
-      orderBy: { start_date: "desc" },
-      take: 5,
-    });
-
-    // My requests
+    // My requests (depends on staff)
     let myRequests: { id: string; term_id: string; requested_date: string }[] = [];
     if (staff) {
       const requests = await prisma.shiftRequest.findMany({

@@ -5,7 +5,7 @@ import type {
 } from "./types";
 
 /** S1: 夜勤回数の均等化（目標: ±1回以内） */
-export function checkS1(
+function checkS1(
   entries: ShiftEntryInput[],
   staffList: StaffInput[]
 ): ConstraintViolation[] {
@@ -13,12 +13,18 @@ export function checkS1(
   const nightEligible = staffList.filter((s) => s.is_active && s.night_shift_available);
   if (nightEligible.length < 2) return violations;
 
-  const nightCounts = nightEligible.map((s) => {
-    const count = entries.filter(
-      (e) => e.staff_id === s.id && (e.shift_type === "evening" || e.shift_type === "night")
-    ).length;
-    return { staff_id: s.id, count };
-  });
+  // Build night counts in one pass
+  const nightCountMap = new Map<string, number>();
+  for (const e of entries) {
+    if (e.shift_type === "evening" || e.shift_type === "night") {
+      nightCountMap.set(e.staff_id, (nightCountMap.get(e.staff_id) ?? 0) + 1);
+    }
+  }
+
+  const nightCounts = nightEligible.map((s) => ({
+    staff_id: s.id,
+    count: nightCountMap.get(s.id) ?? 0,
+  }));
 
   const counts = nightCounts.map((n) => n.count);
   const minCount = Math.min(...counts);
@@ -40,7 +46,7 @@ export function checkS1(
 }
 
 /** S2: 週末休みの均等化（目標: ±1回以内） */
-export function checkS2(
+function checkS2(
   entries: ShiftEntryInput[],
   staffList: StaffInput[],
   dates: string[]
@@ -49,22 +55,24 @@ export function checkS2(
   const activeStaff = staffList.filter((s) => s.is_active);
   if (activeStaff.length < 2) return violations;
 
-  const weekendDates = dates.filter((d) => {
+  const weekendDateSet = new Set<string>();
+  for (const d of dates) {
     const dow = new Date(d + "T00:00:00Z").getUTCDay();
-    return dow === 0 || dow === 6;
-  });
+    if (dow === 0 || dow === 6) weekendDateSet.add(d);
+  }
 
-  const weekendOffCounts = activeStaff.map((s) => {
-    const count = entries.filter(
-      (e) =>
-        e.staff_id === s.id &&
-        weekendDates.includes(e.date) &&
-        (e.shift_type === "off" || e.shift_type === "requested_off" || e.shift_type === "holiday_off")
-    ).length;
-    return { staff_id: s.id, count };
-  });
+  // Build weekend-off counts in one pass
+  const weekendOffMap = new Map<string, number>();
+  for (const e of entries) {
+    if (
+      weekendDateSet.has(e.date) &&
+      (e.shift_type === "off" || e.shift_type === "requested_off" || e.shift_type === "holiday_off")
+    ) {
+      weekendOffMap.set(e.staff_id, (weekendOffMap.get(e.staff_id) ?? 0) + 1);
+    }
+  }
 
-  const counts = weekendOffCounts.map((w) => w.count);
+  const counts = activeStaff.map((s) => weekendOffMap.get(s.id) ?? 0);
   const diff = Math.max(...counts) - Math.min(...counts);
 
   if (diff > 1) {
@@ -79,7 +87,7 @@ export function checkS2(
 }
 
 /** S3: 勤務時間の均等化（目標: ±7.75h = 1シフト分） */
-export function checkS3(
+function checkS3(
   entries: ShiftEntryInput[],
   staffList: StaffInput[]
 ): ConstraintViolation[] {
@@ -87,15 +95,15 @@ export function checkS3(
   const activeStaff = staffList.filter((s) => s.is_active);
   if (activeStaff.length < 2) return violations;
 
-  const workCounts = activeStaff.map((s) => {
-    const count = entries.filter(
-      (e) =>
-        e.staff_id === s.id &&
-        (e.shift_type === "day" || e.shift_type === "evening" || e.shift_type === "night")
-    ).length;
-    return count;
-  });
+  // Build work counts in one pass
+  const workCountMap = new Map<string, number>();
+  for (const e of entries) {
+    if (e.shift_type === "day" || e.shift_type === "evening" || e.shift_type === "night") {
+      workCountMap.set(e.staff_id, (workCountMap.get(e.staff_id) ?? 0) + 1);
+    }
+  }
 
+  const workCounts = activeStaff.map((s) => workCountMap.get(s.id) ?? 0);
   const diff = Math.max(...workCounts) - Math.min(...workCounts);
   if (diff > 1) {
     violations.push({
@@ -109,28 +117,31 @@ export function checkS3(
 }
 
 /** S4: 代休の同一ターム消化 */
-export function checkS4(
+function checkS4(
   entries: ShiftEntryInput[],
   staffList: StaffInput[],
-  _dates: string[],
   holidayDates: Set<string>
 ): ConstraintViolation[] {
   const violations: ConstraintViolation[] = [];
   const activeStaff = staffList.filter((s) => s.is_active);
 
-  for (const staff of activeStaff) {
-    // Count days staff worked on holidays
-    const holidayWorkDays = entries.filter(
-      (e) =>
-        e.staff_id === staff.id &&
-        holidayDates.has(e.date) &&
-        (e.shift_type === "day" || e.shift_type === "evening" || e.shift_type === "night")
-    ).length;
+  // Build counts in one pass
+  const holidayWorkMap = new Map<string, number>();
+  const holidayOffMap = new Map<string, number>();
+  for (const e of entries) {
+    if (e.shift_type === "holiday_off") {
+      holidayOffMap.set(e.staff_id, (holidayOffMap.get(e.staff_id) ?? 0) + 1);
+    } else if (
+      holidayDates.has(e.date) &&
+      (e.shift_type === "day" || e.shift_type === "evening" || e.shift_type === "night")
+    ) {
+      holidayWorkMap.set(e.staff_id, (holidayWorkMap.get(e.staff_id) ?? 0) + 1);
+    }
+  }
 
-    // Count holiday_off entries
-    const holidayOffDays = entries.filter(
-      (e) => e.staff_id === staff.id && e.shift_type === "holiday_off"
-    ).length;
+  for (const staff of activeStaff) {
+    const holidayWorkDays = holidayWorkMap.get(staff.id) ?? 0;
+    const holidayOffDays = holidayOffMap.get(staff.id) ?? 0;
 
     if (holidayWorkDays > holidayOffDays) {
       violations.push({
@@ -155,6 +166,6 @@ export function checkAllSoftConstraints(
     ...checkS1(entries, staffList),
     ...checkS2(entries, staffList, dates),
     ...checkS3(entries, staffList),
-    ...checkS4(entries, staffList, dates, holidayDates),
+    ...checkS4(entries, staffList, holidayDates),
   ];
 }

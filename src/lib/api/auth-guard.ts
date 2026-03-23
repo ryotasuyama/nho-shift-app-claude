@@ -1,3 +1,4 @@
+import { headers } from "next/headers";
 import { createServerSupabase } from "@/lib/supabase/server";
 import { errorResponse } from "./response";
 import { ERROR_CODES } from "./errors";
@@ -13,6 +14,20 @@ function parseRole(value: unknown): "admin" | "staff" {
 }
 
 export const getAuthUser = async (): Promise<AuthResult | null> => {
+  // Try middleware-injected headers first (avoids duplicate Supabase call)
+  const headerStore = await headers();
+  const headerUserId = headerStore.get("x-user-id");
+  const headerRole = headerStore.get("x-user-role");
+
+  if (headerUserId && headerRole) {
+    return {
+      userId: headerUserId,
+      role: parseRole(headerRole),
+      email: headerStore.get("x-user-email") ?? "",
+    };
+  }
+
+  // Fallback to Supabase auth (for non-API routes or if headers missing)
   const supabase = await createServerSupabase();
   const {
     data: { user },

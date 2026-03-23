@@ -61,7 +61,7 @@ export async function middleware(request: NextRequest) {
     return response;
   }
 
-  // API routes - return 401 JSON for unauthenticated
+  // API routes - return 401 JSON for unauthenticated, pass user info via headers
   if (pathname.startsWith("/api/")) {
     if (!user) {
       console.log("[middleware] BLOCKED", pathname, "- no user session");
@@ -70,6 +70,10 @@ export async function middleware(request: NextRequest) {
         { status: 401 }
       );
     }
+    const role = parseRole(user.user_metadata?.role);
+    response.headers.set("x-user-id", user.id);
+    response.headers.set("x-user-role", role);
+    response.headers.set("x-user-email", user.email ?? "");
     return response;
   }
 

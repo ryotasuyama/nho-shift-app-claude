@@ -9,42 +9,64 @@ export async function GET() {
     const { error: authError } = await requireAdmin();
     if (authError) return authError;
 
-    // Terms (ordered by start_date desc)
-    const terms = await prisma.term.findMany({
-      orderBy: { start_date: "desc" },
-      take: 20,
-    });
-
-    // Staff count
-    const staffCounts = await prisma.staff.groupBy({
-      by: ["team"],
-      where: { is_active: true },
-      _count: { id: true },
-    });
+    // Run independent queries in parallel
+    const [terms, staffCounts, activeStaffCount] = await Promise.all([
+      prisma.term.findMany({
+        orderBy: { start_date: "desc" },
+        take: 20,
+      }),
+      prisma.staff.groupBy({
+        by: ["team"],
+        where: { is_active: true },
+        _count: { id: true },
+      }),
+      prisma.staff.count({ where: { is_active: true } }),
+    ]);
 
     const teamA = staffCounts.find((s) => s.team === "A")?._count.id ?? 0;
     const teamB = staffCounts.find((s) => s.team === "B")?._count.id ?? 0;
 
-    // Request summaries for collecting terms
+    // Request summaries: single grouped query instead of N+1
     const collectingTerms = terms.filter((t) => t.status === "collecting");
-    const activeStaffCount = await prisma.staff.count({ where: { is_active: true } });
+    const collectingTermIds = collectingTerms.map((t) => t.id);
 
-    const requestSummaries = await Promise.all(
-      collectingTerms.map(async (t) => {
-        const requests = await prisma.shiftRequest.findMany({
-          where: { term_id: t.id },
-          select: { staff_id: true },
-        });
-        const uniqueStaffs = new Set(requests.map((r) => r.staff_id));
+    let requestSummaries: {
+      term_id: string;
+      term_label: string;
+      total_requests: number;
+      staff_with_requests: number;
+      total_staff: number;
+    }[] = [];
+
+    if (collectingTermIds.length > 0) {
+      const allRequests = await prisma.shiftRequest.findMany({
+        where: { term_id: { in: collectingTermIds } },
+        select: { term_id: true, staff_id: true },
+      });
+
+      // Group by term_id
+      const byTerm = new Map<string, { count: number; staffIds: Set<string> }>();
+      for (const r of allRequests) {
+        let entry = byTerm.get(r.term_id);
+        if (!entry) {
+          entry = { count: 0, staffIds: new Set() };
+          byTerm.set(r.term_id, entry);
+        }
+        entry.count++;
+        entry.staffIds.add(r.staff_id);
+      }
+
+      requestSummaries = collectingTerms.map((t) => {
+        const data = byTerm.get(t.id);
         return {
           term_id: t.id,
           term_label: `${formatDate(t.start_date)} 〜 ${formatDate(t.end_date)}`,
-          total_requests: requests.length,
-          staff_with_requests: uniqueStaffs.size,
+          total_requests: data?.count ?? 0,
+          staff_with_requests: data?.staffIds.size ?? 0,
           total_staff: activeStaffCount,
         };
-      })
-    );
+      });
+    }
 
     return successResponse({
       terms: terms.map((t) => ({

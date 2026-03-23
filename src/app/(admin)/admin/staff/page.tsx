@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import StaffTable from "@/components/staff/StaffTable";
 import StaffFormDialog from "@/components/staff/StaffFormDialog";
 import type { StaffListItem } from "@/types/staff";
@@ -11,7 +11,9 @@ export default function StaffManagementPage() {
   const [loading, setLoading] = useState(true);
   const [teamFilter, setTeamFilter] = useState<"" | "A" | "B">("");
   const [activeFilter, setActiveFilter] = useState<"true" | "false">("true");
-  const [search, setSearch] = useState("");
+  const [searchInput, setSearchInput] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingStaff, setEditingStaff] = useState<StaffListItem | null>(null);
   const [error, setError] = useState("");
@@ -21,7 +23,7 @@ export default function StaffManagementPage() {
     const params = new URLSearchParams();
     if (teamFilter) params.set("team", teamFilter);
     params.set("is_active", activeFilter);
-    if (search) params.set("search", search);
+    if (debouncedSearch) params.set("search", debouncedSearch);
 
     try {
       const { data } = await apiFetch<StaffListItem[]>(`/api/staffs?${params.toString()}`);
@@ -31,7 +33,7 @@ export default function StaffManagementPage() {
     } finally {
       setLoading(false);
     }
-  }, [teamFilter, activeFilter, search]);
+  }, [teamFilter, activeFilter, debouncedSearch]);
 
   useEffect(() => {
     fetchStaffs();
@@ -101,8 +103,13 @@ export default function StaffManagementPage() {
         <input
           type="text"
           placeholder="氏名 or コードで検索"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          value={searchInput}
+          onChange={(e) => {
+            const val = e.target.value;
+            setSearchInput(val);
+            if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+            searchTimerRef.current = setTimeout(() => setDebouncedSearch(val), 300);
+          }}
           className="rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-900"
         />
         <select

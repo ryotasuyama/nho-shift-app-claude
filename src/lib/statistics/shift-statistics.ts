@@ -14,8 +14,19 @@ export function calculateStaffStatistics(
 ): StaffStatistics[] {
   const activeStaff = staffList.filter((s) => s.is_active);
 
+  // Build per-staff entries in one pass
+  const entriesByStaff = new Map<string, ShiftEntryInput[]>();
+  for (const e of entries) {
+    let arr = entriesByStaff.get(e.staff_id);
+    if (!arr) {
+      arr = [];
+      entriesByStaff.set(e.staff_id, arr);
+    }
+    arr.push(e);
+  }
+
   return activeStaff.map((staff) => {
-    const staffEntries = entries.filter((e) => e.staff_id === staff.id);
+    const staffEntries = entriesByStaff.get(staff.id) ?? [];
 
     let dayCount = 0;
     let eveningCount = 0;
@@ -73,8 +84,19 @@ export function calculateDailyStatistics(
   entries: ShiftEntryInput[],
   dates: string[]
 ): DailyStatistics[] {
+  // Build per-date entries in one pass
+  const entriesByDate = new Map<string, ShiftEntryInput[]>();
+  for (const e of entries) {
+    let arr = entriesByDate.get(e.date);
+    if (!arr) {
+      arr = [];
+      entriesByDate.set(e.date, arr);
+    }
+    arr.push(e);
+  }
+
   return dates.map((date) => {
-    const dayEntries = entries.filter((e) => e.date === date);
+    const dayEntries = entriesByDate.get(date) ?? [];
 
     let dayCount = 0;
     let eveningCount = 0;
