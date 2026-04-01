@@ -72,6 +72,9 @@ export default function StaffHomePage() {
           <h2 className="text-sm font-bold text-gray-700">希望休受付中</h2>
           {data.collecting_terms.map((t) => {
             const myReqs = data.my_requests.filter((r) => r.term_id === t.id);
+            const isPastDeadline = t.request_deadline
+              ? new Date().toISOString().slice(0, 10) > t.request_deadline
+              : false;
             return (
               <div key={t.id} className="rounded-lg border border-blue-200 bg-blue-50 p-4">
                 <div className="flex items-center justify-between">
@@ -85,15 +88,28 @@ export default function StaffHomePage() {
                       </div>
                     )}
                     <div className="mt-1 text-sm text-gray-500">
-                      申請済み: {myReqs.length}/3
+                      申請済み: {myReqs.length}日
                     </div>
                   </div>
-                  <Link
-                    href="/requests"
-                    className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-                  >
-                    希望休を申請
-                  </Link>
+                  {isPastDeadline ? (
+                    <span className="rounded-md bg-gray-200 px-4 py-2 text-sm font-medium text-gray-500">
+                      {myReqs.length > 0 ? "提出済み" : "受付終了"}
+                    </span>
+                  ) : myReqs.length > 0 ? (
+                    <Link
+                      href="/requests"
+                      className="rounded-md border border-blue-600 bg-white px-4 py-2 text-sm font-medium text-blue-600 hover:bg-blue-50"
+                    >
+                      希望休を修正
+                    </Link>
+                  ) : (
+                    <Link
+                      href="/requests"
+                      className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+                    >
+                      希望休を申請
+                    </Link>
+                  )}
                 </div>
                 {myReqs.length > 0 && (
                   <div className="mt-2 flex gap-2">
