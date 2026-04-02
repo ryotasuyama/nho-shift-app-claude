@@ -54,3 +54,50 @@ npm run db:seed      # シードデータ投入
 
 - スキーマ変更は prisma/schema.prisma で管理
 - マイグレーションは Prisma Migrate で適用
+
+## 並列開発（Git Worktree）
+
+複数の機能・修正を同時に開発する場合、Git Worktree を使って並列作業する。
+
+### セットアップ
+
+```bash
+# ターミナル1: 認証機能を開発
+git worktree add ~/projects/nho-shift-app-claude-auth feature/auth
+cd ~/projects/nho-shift-app-claude-auth
+claude
+
+# ターミナル2: UI修正を並行して開発
+git worktree add ~/projects/nho-shift-app-claude-ui feature/ui-redesign
+cd ~/projects/nho-shift-app-claude-ui
+claude
+
+# ターミナル3: バグ修正も同時に
+git worktree add ~/projects/nho-shift-app-claude-fix fix/critical-bug
+cd ~/projects/nho-shift-app-claude-fix
+claude
+```
+
+### ディレクトリ構成
+
+```
+~/projects/
+├── nho-shift-app-claude/         # メイン（mainブランチ）
+├── nho-shift-app-claude-auth/    # feature/auth
+├── nho-shift-app-claude-ui/      # feature/ui-redesign
+└── nho-shift-app-claude-fix/     # fix/critical-bug
+```
+
+### ワークフロー
+
+1. 各 Worktree のブランチで作業・コミットする
+2. 全てのコミットが完了したら、プッシュコマンドを出力する（**Claude は push を実行しない**）
+3. ユーザーが手動でプッシュし、GitHub 上で PR を作成・マージする
+4. プッシュ完了後、ローカルブランチと Worktree を削除する（**プッシュ前に削除するとコミットが失われる**）
+
+- **プッシュコマンド出力**: 作業完了時に `git push -u origin <ブランチ名>` を表示する。ユーザーが手動で実行する
+- **プッシュ後のクリーンアップ**: ユーザーからプッシュ完了の通知を受けたら、以下のコマンドを表示する
+  ```bash
+  git worktree remove ~/projects/nho-shift-app-claude-<名前>
+  git branch -d <ブランチ名>
+  ```
