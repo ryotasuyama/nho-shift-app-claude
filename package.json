@@ -10,7 +10,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "check": "npm run lint && npm run typecheck && npm run build",
+    "check": "npm run db:generate && npm run lint && npm run typecheck && npm run build",
     "db:generate": "prisma generate --config prisma/prisma.config.ts",
     "db:migrate": "prisma migrate dev --config prisma/prisma.config.ts",
     "db:push": "prisma db push --config prisma/prisma.config.ts",
