@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import type { TermListItem } from "@/types/term";
 import { apiFetch } from "@/lib/api/client";
 import { WEEKDAY_LABELS } from "@/lib/constants/shift";
@@ -15,6 +16,7 @@ type RequestItem = {
 };
 
 export default function RequestsPage() {
+  const router = useRouter();
   const [terms, setTerms] = useState<TermListItem[]>([]);
   const [selectedTermId, setSelectedTermId] = useState<string | null>(null);
   const [requests, setRequests] = useState<RequestItem[]>([]);
@@ -22,6 +24,7 @@ export default function RequestsPage() {
   const [submitting, setSubmitting] = useState(false);
   const [staffId, setStaffId] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const [pendingDates, setPendingDates] = useState<Set<string>>(new Set());
 
   // Fetch collecting terms
   useEffect(() => {
@@ -76,8 +79,6 @@ export default function RequestsPage() {
   const isAfterDeadline = selectedTerm?.request_deadline
     ? new Date().toISOString().slice(0, 10) > selectedTerm.request_deadline
     : false;
-  const remainingCount = 3 - requests.length;
-
   // Generate calendar dates for the selected term
   const calendarDates: string[] = [];
   if (selectedTerm) {
@@ -93,7 +94,7 @@ export default function RequestsPage() {
     if (isAfterDeadline || !staffId || !selectedTermId) return;
 
     if (requestedDates.has(date)) {
-      // Cancel existing request
+      // Cancel existing request via DELETE API
       const req = requests.find((r) => r.requested_date === date);
       if (!req) return;
       setSubmitting(true);
@@ -113,29 +114,56 @@ export default function RequestsPage() {
         setSubmitting(false);
       }
     } else {
-      // Create new request
-      if (remainingCount <= 0) {
-        setError("希望休は最大3日までです");
-        return;
-      }
-      setSubmitting(true);
-      setError("");
-      try {
-        const { error: errMsg } = await apiFetch(`/api/terms/${selectedTermId}/requests`, {
+      // Toggle pending date locally (no API call)
+      setPendingDates((prev) => {
+        const next = new Set(prev);
+        if (next.has(date)) {
+          next.delete(date);
+        } else {
+          // Check remaining count
+          if (3 - requests.length - next.size <= 0) {
+            setError("希望休は最大3日までです");
+            return prev;
+          }
+          next.add(date);
+        }
+        setError("");
+        return next;
+      });
+    }
+  };
+
+  const handleSubmitOrBack = async () => {
+    if (!staffId || !selectedTermId) return;
+    // No pending dates: just go back to home
+    if (pendingDates.size === 0) {
+      router.push("/home");
+      return;
+    }
+    setSubmitting(true);
+    setError("");
+    try {
+      const { error: errMsg } = await apiFetch(
+        `/api/terms/${selectedTermId}/requests/batch`,
+        {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ staff_id: staffId, requested_date: date }),
-        });
-        if (errMsg) {
-          setError(errMsg);
-          return;
+          body: JSON.stringify({
+            staff_id: staffId,
+            requested_dates: Array.from(pendingDates).sort(),
+          }),
         }
-        fetchRequests();
-      } catch {
-        setError("通信エラーが発生しました");
-      } finally {
-        setSubmitting(false);
+      );
+      if (errMsg) {
+        setError(errMsg);
+        return;
       }
+      // Success: navigate to home
+      router.push("/home");
+    } catch {
+      setError("通信エラーが発生しました");
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -169,7 +197,11 @@ export default function RequestsPage() {
           <label className="block text-sm font-medium text-gray-700">対象ターム</label>
           <select
             value={selectedTermId ?? ""}
-            onChange={(e) => setSelectedTermId(e.target.value)}
+            onChange={(e) => {
+              setSelectedTermId(e.target.value);
+              setPendingDates(new Set());
+              setError("");
+            }}
             className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900"
           >
             {terms.map((t) => (
@@ -201,10 +233,10 @@ export default function RequestsPage() {
             </div>
           )}
 
-          {/* Remaining count */}
+          {/* Selection count */}
           {!isAfterDeadline && (
             <div className="mt-3 text-sm text-gray-700">
-              あと <span className="font-bold text-blue-600">{remainingCount}</span> 日選択できます
+              選択中: <span className="font-bold text-blue-600">{requests.length + pendingDates.size}</span>日 / 最大3日
             </div>
           )}
 
@@ -235,6 +267,7 @@ export default function RequestsPage() {
               {calendarDates.map((date) => {
                 const dow = getDayOfWeek(date);
                 const isRequested = requestedDates.has(date);
+                const isPending = pendingDates.has(date);
                 const dayNum = date.slice(8);
                 const canClick = !isAfterDeadline && !submitting && staffId !== null;
 
@@ -247,12 +280,16 @@ export default function RequestsPage() {
                     className={`relative flex h-10 items-center justify-center rounded-md text-sm transition-colors ${
                       isRequested
                         ? "bg-blue-600 font-bold text-white"
-                        : dow === 0
-                          ? "bg-red-50 text-red-700 hover:bg-red-100"
-                          : dow === 6
-                            ? "bg-blue-50 text-blue-700 hover:bg-blue-100"
-                            : "bg-white text-gray-900 hover:bg-gray-100"
-                    } ${!canClick ? "cursor-default opacity-60" : "cursor-pointer"} border border-gray-200`}
+                        : isPending
+                          ? "border-2 border-blue-600 bg-blue-50 font-bold text-blue-700"
+                          : dow === 0
+                            ? "bg-red-50 text-red-700 hover:bg-red-100"
+                            : dow === 6
+                              ? "bg-blue-50 text-blue-700 hover:bg-blue-100"
+                              : "bg-white text-gray-900 hover:bg-gray-100"
+                    } ${!canClick ? "cursor-default opacity-60" : "cursor-pointer"} ${
+                      isPending ? "" : "border border-gray-200"
+                    }`}
                   >
                     {dayNum}
                   </button>
@@ -261,10 +298,64 @@ export default function RequestsPage() {
             </div>
           </div>
 
+          {/* Submit / Back button */}
+          {!isAfterDeadline && (
+            <div className="mt-4 space-y-2">
+              {pendingDates.size > 0 && (
+                <p className="text-sm text-gray-700">
+                  {pendingDates.size}日選択中
+                </p>
+              )}
+              <button
+                type="button"
+                onClick={handleSubmitOrBack}
+                disabled={submitting}
+                className="w-full rounded-md bg-blue-600 py-2 text-sm font-bold text-white hover:bg-blue-700 disabled:bg-gray-400"
+              >
+                {submitting ? "送信中..." : pendingDates.size > 0 ? "提出" : "戻る"}
+              </button>
+            </div>
+          )}
+
           {/* Error message */}
           {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
 
-          {/* Selected dates list */}
+          {/* Pending dates list */}
+          {pendingDates.size > 0 && (
+            <div className="mt-4">
+              <h3 className="text-sm font-medium text-gray-700">選択中の日付</h3>
+              <ul className="mt-2 space-y-1">
+                {Array.from(pendingDates).sort().map((date) => {
+                  const dow = getDayOfWeek(date);
+                  return (
+                    <li
+                      key={date}
+                      className="flex items-center justify-between rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm"
+                    >
+                      <span className="text-gray-900">
+                        {date} ({WEEKDAY_LABELS[dow]})
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPendingDates((prev) => {
+                            const next = new Set(prev);
+                            next.delete(date);
+                            return next;
+                          });
+                        }}
+                        className="text-red-600 hover:text-red-800"
+                      >
+                        取消
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          )}
+
+          {/* Submitted requests list */}
           {requests.length > 0 && (
             <div className="mt-4">
               <h3 className="text-sm font-medium text-gray-700">申請済みの希望休</h3>
